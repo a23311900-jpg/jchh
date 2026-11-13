@@ -1,37 +1,162 @@
-:root { --fondo: #05060a; --eco: #78dcff; --texto: #b9c4d6; }
+/* ===== Eco: diseño de la página (el lienzo del juego no cambia de tamaño) ===== */
+:root {
+  --fondo: #05060a;
+  --eco: #78dcff;
+  --ambar: #ffe08a;
+  --rojo: #ff6b6b;
+  --texto: #b9c4d6;
+  --tenue: #6f7f95;
+  --linea: #1a2a36;
+}
 * { box-sizing: border-box; }
 body {
   margin: 0;
   min-height: 100vh;
-  display: grid;
-  place-items: center;
-  background: var(--fondo);
   color: var(--texto);
   font-family: Georgia, "Times New Roman", serif;
+  background: radial-gradient(ellipse at 50% -10%, #11202e 0%, #080b12 55%, var(--fondo) 100%) fixed;
 }
-main { text-align: center; padding: 12px; }
-h1 { margin: 0 0 10px; font-size: 2rem; font-weight: normal; letter-spacing: 0.3em; color: var(--eco); }
-canvas {
-  background: #000;
-  border: 1px solid #1a2a36;
-  max-width: 100%;
-  height: auto;
-  touch-action: none;
-  cursor: crosshair;
+/* Cuadrícula tenue de fondo que se desvanece hacia los bordes */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(120, 220, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120, 220, 255, 0.05) 1px, transparent 1px);
+  background-size: 42px 42px;
+  -webkit-mask-image: radial-gradient(ellipse at center, #000 20%, transparent 75%);
+  mask-image: radial-gradient(ellipse at center, #000 20%, transparent 75%);
 }
-.ayuda { font-size: 0.85rem; opacity: 0.65; max-width: 630px; margin: 10px auto 0; }
-button {
-  margin-top: 10px;
-  padding: 6px 18px;
-  background: transparent;
+main { position: relative; max-width: 1400px; margin: 0 auto; padding: 18px 16px 24px; text-align: center; }
+
+header h1 {
+  margin: 0;
+  padding-left: 0.5em;
+  font-size: 2.4rem;
+  font-weight: normal;
+  letter-spacing: 0.5em;
   color: var(--eco);
+  text-shadow: 0 0 20px rgba(120, 220, 255, 0.55);
+}
+.sub { margin: 4px 0 18px; font-style: italic; letter-spacing: 0.14em; color: var(--tenue); }
+
+/* ---- Disposición: controles | juego | estado ---- */
+.escena {
+  display: grid;
+  grid-template-columns: minmax(190px, 230px) minmax(0, 832px) minmax(190px, 230px);
+  gap: 18px;
+  justify-content: center;
+  align-items: start;
+}
+.lateral {
+  padding: 14px;
+  text-align: left;
+  background: rgba(13, 20, 30, 0.72);
+  border: 1px solid var(--linea);
+  border-radius: 6px;
+  box-shadow: 0 0 24px rgba(0, 0, 0, 0.5);
+}
+.lateral h3 {
+  margin: 0 0 12px;
+  padding-bottom: 7px;
+  font-size: 0.78rem;
+  font-weight: normal;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: var(--eco);
+  border-bottom: 1px solid var(--linea);
+}
+
+/* Controles con teclas dibujadas */
+.teclas { margin: 0; padding: 0; list-style: none; }
+.teclas li { display: flex; flex-direction: column; gap: 3px; margin-bottom: 12px; font-size: 0.82rem; }
+.teclas em { font-style: normal; color: var(--tenue); }
+kbd {
+  display: inline-block;
+  min-width: 24px;
+  margin: 0 2px 2px 0;
+  padding: 2px 6px;
+  font: 0.78rem Georgia, serif;
+  text-align: center;
+  color: var(--ambar);
+  background: #0d141e;
+  border: 1px solid #2a4052;
+  border-bottom-width: 3px;
+  border-radius: 4px;
+}
+
+/* Estado del juego (antes tapaba el laberinto) */
+.estado { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 14px; }
+.estado div { padding: 8px 6px; text-align: center; background: rgba(0, 0, 0, 0.35); border: 1px solid var(--linea); border-radius: 4px; }
+.estado dt { font-size: 0.68rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--tenue); }
+.estado dd { margin: 2px 0 0; font-size: 1.4rem; color: var(--eco); }
+.estado dd.alerta { color: var(--rojo); }
+.medidor span { display: block; margin-bottom: 5px; font-size: 0.68rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--tenue); }
+.barra { height: 8px; overflow: hidden; background: var(--linea); border-radius: 4px; }
+.barra i { display: block; width: 100%; height: 100%; background: var(--ambar); }
+.barra i.agotado { background: var(--rojo); }
+
+/* ---- Marco del juego ---- */
+.marco {
+  position: relative;
+  padding: 12px;
+  background: #070a10;
+  border: 1px solid #23394a;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px #000, 0 0 45px rgba(120, 220, 255, 0.13), inset 0 0 30px rgba(0, 0, 0, 0.8);
+}
+/* Esquinas decorativas */
+.marco::before, .marco::after {
+  content: "";
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--eco);
+  opacity: 0.8;
+  pointer-events: none;
+}
+.marco::before { top: -5px; left: -5px; border-right: 0; border-bottom: 0; }
+.marco::after { bottom: -5px; right: -5px; border-left: 0; border-top: 0; }
+.contenedor { position: relative; }
+canvas { display: block; width: 100%; height: auto; background: #000; touch-action: none; cursor: crosshair; }
+
+/* Estado de la luz, debajo del lienzo */
+.estado-luz {
+  margin-top: 10px;
+  padding: 7px 10px;
+  min-height: 34px;
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--linea);
+  border-radius: 3px;
+}
+.estado-luz.memoriza { color: var(--ambar); border-color: rgba(255, 224, 138, 0.5); }
+.estado-luz.iluminado { color: var(--eco); border-color: rgba(120, 220, 255, 0.5); }
+.estado-luz.oscuro { color: var(--tenue); }
+
+/* ---- Botones ---- */
+.botones { display: flex; flex-direction: column; gap: 8px; }
+button {
+  padding: 8px 14px;
+  font: 0.9rem Georgia, serif;
+  letter-spacing: 0.05em;
+  color: var(--eco);
+  background: transparent;
   border: 1px solid var(--eco);
-  font: inherit;
+  border-radius: 3px;
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }
 button:hover, button:focus-visible { background: rgba(120, 220, 255, 0.15); }
-.contenedor { position: relative; display: inline-block; max-width: 100%; }
-canvas { display: block; }
+#comenzar { padding: 10px 34px; font-size: 1rem; color: var(--ambar); border-color: var(--ambar); }
+#comenzar:hover { background: rgba(255, 224, 138, 0.15); }
+
+/* ---- Panel de instrucciones sobre el lienzo ---- */
 .panel {
   position: absolute;
   inset: 0;
@@ -39,20 +164,33 @@ canvas { display: block; }
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  padding: 28px 40px;
-  background: rgba(0, 0, 0, 0.94);
+  padding: 24px 40px;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.95);
   text-align: left;
 }
 .panel.oculto { display: none; }
 .panel h2 { margin: 0 0 10px; font-weight: normal; letter-spacing: 0.15em; color: var(--eco); }
-.panel p { max-width: 560px; margin: 0 0 12px; line-height: 1.5; }
-.panel ul { max-width: 560px; margin: 0 0 18px; padding-left: 20px; line-height: 1.5; font-size: 0.95rem; }
-.panel li { margin-bottom: 6px; }
-.panel b { color: #ffe08a; font-weight: normal; }
-.ayuda { max-width: 810px; }
+.panel p { max-width: 560px; margin: 0 0 12px; line-height: 1.45; }
+.panel ul { max-width: 560px; margin: 0 0 18px; padding-left: 20px; font-size: 0.92rem; line-height: 1.45; }
+.panel li { margin-bottom: 7px; }
+.panel b { font-weight: normal; color: var(--ambar); }
+
+footer { margin-top: 22px; font-size: 0.78rem; letter-spacing: 0.12em; color: var(--tenue); opacity: 0.7; }
+
+/* ---- Pantallas medianas y móviles: todo en una columna ---- */
+@media (max-width: 1360px) {
+  .escena { grid-template-columns: minmax(0, 832px); }
+  .der { order: 1; }
+  .marco { order: 2; }
+  .izq { order: 3; }
+  .estado { grid-template-columns: repeat(4, 1fr); }
+  .botones { flex-direction: row; flex-wrap: wrap; }
+  .teclas { columns: 2; }
+}
 @media (max-width: 600px) {
+  header h1 { font-size: 1.8rem; }
   .panel { padding: 12px 16px; font-size: 0.8rem; }
   .panel ul { font-size: 0.8rem; }
+  .estado { grid-template-columns: repeat(2, 1fr); }
 }
-.botones { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-.botones button { user-select: none; -webkit-user-select: none; touch-action: none; }

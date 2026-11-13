@@ -8,30 +8,63 @@
 </head>
 <body>
   <main>
-    <h1>Eco</h1>
-    <div class="contenedor">
-      <canvas id="juego" width="810" height="570" aria-label="Laberinto oscuro"></canvas>
-      <div id="instrucciones" class="panel">
-        <h2>Escapa del ente</h2>
-        <p>Despiertas en un laberinto totalmente oscuro. Algo te caza y no ve: te oye. Encuentra la salida verde antes de que te alcance.</p>
-        <ul>
-          <li><b>Memoriza.</b> Al empezar cada nivel ves el mapa, la salida y al ente durante 7 segundos.</li>
-          <li><b>Muévete</b> con las flechas o WASD (en móvil, mantén el dedo en la pantalla).</li>
-          <li><b>Lanza un eco</b> con clic o espacio (en móvil, un toque rápido) para ver paredes y camino un instante. Se recargan solos.</li>
-          <li><b>Cuidado:</b> cada eco lo alerta y va hacia donde sonó. Lánzalo y muévete de inmediato.</li>
-          <li><b>Escucha.</b> Si se acerca oirás sus pasos, más fuertes y rápidos, del lado por donde viene. El camino rojo marca su ruta.</li>
-          <li><b>Huye:</b> mantén <b>Shift</b> para correr (aliento limitado): si ganas distancia, el ente pierde tu rastro. Con <b>E</b> lanzas un señuelo, un ruido falso que desvía al ente (pocos por nivel).</li>
-          <li><b>R</b> reinicia la partida en cualquier momento.</li>
+    <header>
+      <h1>ECO</h1>
+      <p class="sub">escapa del ente que te escucha</p>
+    </header>
+
+    <div class="escena">
+      <aside class="lateral izq">
+        <h3>Controles</h3>
+        <ul class="teclas">
+          <li><span><kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> o <kbd>WASD</kbd></span><em>Moverte</em></li>
+          <li><span><kbd>Espacio</kbd> o clic</span><em>Lanzar eco</em></li>
+          <li><span><kbd>Shift</kbd></span><em>Correr</em></li>
+          <li><span><kbd>E</kbd></span><em>Señuelo</em></li>
+          <li><span><kbd>R</kbd></span><em>Reiniciar</em></li>
         </ul>
-        <button id="comenzar" type="button">Comenzar</button>
+        <div class="botones">
+          <button id="reiniciar" type="button">Reiniciar</button>
+          <button id="correr" type="button">Correr (mantén)</button>
+          <button id="senuelo" type="button">Señuelo</button>
+        </div>
+      </aside>
+
+      <div class="marco">
+        <div class="contenedor">
+          <canvas id="juego" width="810" height="570" aria-label="Laberinto oscuro"></canvas>
+          <div id="instrucciones" class="panel">
+            <h2>Escapa del ente</h2>
+            <p>Despiertas en un laberinto totalmente oscuro. Algo te caza y no ve: te oye. Encuentra la salida verde antes de que te alcance.</p>
+            <ul>
+              <li><b>Memoriza.</b> Al empezar cada nivel ves el mapa, la salida y al ente durante 7 segundos.</li>
+              <li><b>Luz.</b> Después el mapa se apaga 10 segundos y se ilumina 4, una y otra vez.</li>
+              <li><b>Eco.</b> Lánzalo (clic, espacio o toque rápido) para ver paredes y camino un instante. Pero alerta al ente: lánzalo y muévete.</li>
+              <li><b>Escucha.</b> Si se acerca oirás sus pasos, del lado por donde viene. El camino rojo marca su ruta.</li>
+              <li><b>Huye.</b> Shift para correr (aliento limitado). E lanza un señuelo que lo desvía.</li>
+            </ul>
+            <button id="comenzar" type="button">Comenzar</button>
+          </div>
+        </div>
+        <div id="hud-luz" class="estado-luz oscuro">Lee las instrucciones y pulsa Comenzar</div>
       </div>
+
+      <aside class="lateral der">
+        <h3>Estado</h3>
+        <dl class="estado">
+          <div><dt>Nivel</dt><dd id="hud-nivel">1</dd></div>
+          <div><dt>Récord</dt><dd id="hud-record">1</dd></div>
+          <div><dt>Pulsos</dt><dd id="hud-pulsos">0</dd></div>
+          <div><dt>Señuelos</dt><dd id="hud-senuelos">0</dd></div>
+        </dl>
+        <div class="medidor">
+          <span>Aliento</span>
+          <div class="barra"><i id="hud-aliento"></i></div>
+        </div>
+      </aside>
     </div>
-    <div class="botones">
-      <button id="reiniciar" type="button">Reiniciar</button>
-      <button id="correr" type="button">Correr (mantén)</button>
-      <button id="senuelo" type="button">Señuelo</button>
-    </div>
-    <p class="ayuda">Moverte: flechas o WASD · Eco: clic o espacio · Correr: Shift · Señuelo: E · Reiniciar: R</p>
+
+    <footer>Proyecto escolar · UTH · Código libre (MIT)</footer>
   </main>
   <script src="game.js"></script>
 </body>

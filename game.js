@@ -13,6 +13,8 @@ const VEL_CARRERA = 190, ALIENTO_MAX = 2;   // correr: velocidad y segundos de a
 let estado = "inicio";                        // "inicio" | "jugando" | "fin"
 let mapa, libres, jugador, ente, pulsos, vistas, suelos, salida, salidaVista, previa = 0;
 let aliento = ALIENTO_MAX, agotado = false, corriendo = false, senuelos = 2, senueloAnim = null;
+const T_OSCURO = 10, T_LUZ = 4;             // ciclo: segundos a oscuras y segundos con el mapa iluminado
+let luzF = 1, cicloLuz = 0;                  // luzF: 0 = oscuro, 1 = todo iluminado
 let alertaRoja = { tiles: [], a: 0 };         // camino por donde viene el ente
 let nivel = 1, pulsosRestantes = 0, latido = 0, ultimo = 0, flash = 0, tRecarga = 0, rafId = 0;
 let record = Number(localStorage.getItem("ecoRecord")) || 1;
@@ -124,12 +126,18 @@ function nuevoNivel() {
   alertaRoja = { tiles: [], a: 0 };
   aliento = ALIENTO_MAX; agotado = false; corriendo = false;
   senueloAnim = null;
-  previa = 7;                              // segundos viendo todo el mapa al inicio
+  previa = 7;
+  cicloLuz = 0; luzF = 1;                              // segundos viendo todo el mapa al inicio
   salidaVista = -99;
   pulsos = [];
   pulsosRestantes = PULSOS_NIVEL;
   tRecarga = 0;
-  const lejos = libres.filter((c) => Math.abs(c.x - 1) + Math.abs(c.y - 1) >= Math.floor((COLS + ROWS) * 0.55) && !(c.x === salida.x && c.y === salida.y));
+  // El ente aparece lejos de ti Y de la salida (en la zona media del mapa)
+  const dist = (p, q) => Math.abs(p.x - q.x) + Math.abs(p.y - q.y);
+  const inicio = { x: 1, y: 1 };
+  const minD = Math.floor((COLS + ROWS) * 0.3);
+  let lejos = libres.filter((p) => dist(p, inicio) >= minD && dist(p, salida) >= minD);
+  if (!lejos.length) lejos = libres.filter((p) => dist(p, inicio) >= 4 && dist(p, salida) >= 4);
   const c = lejos[Math.floor(Math.random() * lejos.length)];
   ente = { x: c.x * T + T / 2, y: c.y * T + T / 2, alerta: null, objetivo: null, visto: -99, pausa: 0, rastro: 0, sinPausa: 3 };
 }
@@ -323,6 +331,14 @@ function actualizarEnte(dt) {
 function actualizar(dt, ahora) {
   if (previa > 0) { previa -= dt; return; }   // fase de memorizar: todo congelado
 
+  // Ciclo de luz: T_OSCURO segundos a oscuras y luego T_LUZ con todo el mapa iluminado
+  cicloLuz += dt;
+  const tc = cicloLuz % (T_OSCURO + T_LUZ);
+  if (tc >= T_OSCURO) {
+    const k = tc - T_OSCURO;
+    luzF = Math.max(0, Math.min(1, k / 0.4, (T_LUZ - k) / 0.6));   // entra y sale suave
+  } else luzF = 0;
+
   // Movimiento del jugador
   let dx = 0, dy = 0;
   if (teclas.ArrowLeft || teclas.a || teclas.A) dx--;
@@ -419,7 +435,29 @@ function texto(t, x, y, tam, color = "#b9c4d6", alin = "center") {
   ctx.fillText(t, x, y);
 }
 
+// Panel de estado (fuera del lienzo, para no tapar el laberinto)
+function actualizarHUD() {
+  hud.nivel.textContent = nivel;
+  hud.record.textContent = record;
+  hud.pulsos.textContent = `${pulsosRestantes} / ${PULSOS_NIVEL}`;
+  hud.pulsos.classList.toggle("alerta", estado === "jugando" && pulsosRestantes === 0);
+  hud.senuelos.textContent = senuelos;
+  hud.aliento.style.width = `${(100 * aliento) / ALIENTO_MAX}%`;
+  hud.aliento.classList.toggle("agotado", agotado);
+  let texto = "Lee las instrucciones y pulsa Comenzar", clase = "oscuro";
+  if (estado === "fin") texto = "Te encontró";
+  else if (estado === "jugando") {
+    const tc = cicloLuz % (T_OSCURO + T_LUZ);
+    if (previa > 0) { texto = `Memoriza el mapa y al ente: ${Math.ceil(previa)}`; clase = "memoriza"; }
+    else if (tc >= T_OSCURO) { texto = `Mapa iluminado: ${Math.ceil(T_OSCURO + T_LUZ - tc)} s`; clase = "iluminado"; }
+    else { texto = `A oscuras · luz en ${Math.ceil(T_OSCURO - tc)} s`; clase = "oscuro"; }
+  }
+  hud.luz.textContent = texto;
+  hud.luz.className = `estado-luz ${clase}`;
+}
+
 function dibujar(ahora) {
+  actualizarHUD();
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, W, H);
 
@@ -436,19 +474,18 @@ function dibujar(ahora) {
   ctx.scale(esc, esc);
 
   // Mapa revelado (paredes brillantes, camino tenue); todo se desvanece
-  const mem = previa > 0;
   const FADE = 3;
   for (let i = 0; i < vistas.length; i++) {
     const cx = i % COLS, cy = (i / COLS) | 0;
     let a;
-    if (mapa[cy][cx]) a = (mem ? 1 : 1 - (ahora - vistas[i]) / FADE) * 0.9;
-    else a = mem ? 0.1 : (1 - (ahora - suelos[i]) / FADE) * 0.12;
+    if (mapa[cy][cx]) a = Math.max(luzF, 1 - (ahora - vistas[i]) / FADE) * 0.9;
+    else a = Math.max(luzF * 0.1, (1 - (ahora - suelos[i]) / FADE) * 0.12);
     if (a <= 0) continue;
     ctx.fillStyle = `rgba(120,220,255,${a})`;
     ctx.fillRect(cx * T, cy * T, T, T);
   }
   // Salida
-  const aS = mem ? 1 : 1 - (ahora - salidaVista) / 3;
+  const aS = Math.max(luzF, 1 - (ahora - salidaVista) / 3);
   if (aS > 0) {
     ctx.fillStyle = `rgba(120,255,160,${aS})`;
     ctx.fillRect(salida.x * T + 5, salida.y * T + 5, T - 10, T - 10);
@@ -479,7 +516,7 @@ function dibujar(ahora) {
     ctx.fillRect((i % COLS) * T, ((i / COLS) | 0) * T, T, T);
   });
   // Ente (solo se ve un instante cuando el eco lo toca, o al morir)
-  const aE = estado === "fin" || mem ? 1 : 1 - (ahora - ente.visto) / 1.5;
+  const aE = estado === "fin" ? 1 : Math.max(luzF, 1 - (ahora - ente.visto) / 1.5);
   if (aE > 0) {
     const g = ctx.createRadialGradient(ente.x, ente.y, 2, ente.x, ente.y, 22);
     g.addColorStop(0, `rgba(255,60,60,${aE})`);
@@ -496,18 +533,6 @@ function dibujar(ahora) {
   ctx.fill();
 
   ctx.restore();
-
-  texto(`Nivel ${nivel}`, 10, 18, 14, "#6f7f95", "left");
-  texto(`Pulsos: ${pulsosRestantes}`, W / 2, 18, 14, pulsosRestantes ? "#78dcff" : "#ff6b6b");
-  texto(`Récord: nivel ${record}`, W - 10, 18, 14, "#6f7f95", "right");
-  texto(`Señuelos (E): ${senuelos}`, W - 10, 38, 14, senuelos ? "#ffe08a" : "#6f7f95", "right");
-  ctx.fillStyle = "#1a2a36";                  // barra de aliento
-  ctx.fillRect(10, 28, 100, 6);
-  ctx.fillStyle = agotado ? "#ff6b6b" : "#ffe08a";
-  ctx.fillRect(10, 28, 100 * (aliento / ALIENTO_MAX), 6);
-  texto("Aliento (Shift)", 10, 48, 12, "#6f7f95", "left");
-
-  if (mem) texto(`Memoriza el mapa y al ente: ${Math.ceil(previa)}`, W / 2, H - 10, 16, "#ffe08a");
 
   if (estado === "fin") {
     ctx.fillStyle = "rgba(0,0,0,0.65)";
@@ -570,6 +595,14 @@ canvas.addEventListener("touchend", () => {
 });
 
 const panel = document.getElementById("instrucciones");
+const hud = {
+  nivel: document.getElementById("hud-nivel"),
+  record: document.getElementById("hud-record"),
+  pulsos: document.getElementById("hud-pulsos"),
+  senuelos: document.getElementById("hud-senuelos"),
+  aliento: document.getElementById("hud-aliento"),
+  luz: document.getElementById("hud-luz"),
+};
 document.getElementById("comenzar").addEventListener("click", () => reiniciar());
 const botonReiniciar = document.getElementById("reiniciar");
 botonReiniciar.addEventListener("click", () => { reiniciar(); botonReiniciar.blur(); });
