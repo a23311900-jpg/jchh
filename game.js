@@ -1,13 +1,14 @@
 // ===== ECO: un laberinto oscuro donde el sonido te guía... y te delata =====
 const canvas = document.getElementById("juego");
 const ctx = canvas.getContext("2d");
-const T = 30, COLS = 21, ROWS = 15;          // tamaño del mosaico y del mapa
+const T = 30, COLS = 27, ROWS = 19;          // tamaño del mosaico y del mapa
 const W = COLS * T, H = ROWS * T;
-const VEL_JUG = 120, VEL_ONDA = 240, MAX_R = 320, PULSOS_NIVEL = 10;
-const RECARGA = 4, RADIO_PASOS = 65;     // segundos por pulso nuevo / distancia a la que el ente oye tus pasos
+const VEL_JUG = 120, VEL_ONDA = 240, MAX_R = 380, PULSOS_NIVEL = 10;
+const RECARGA = 4, RADIO_PASOS = 65, RADIO_OIR = 280;     // segundos por pulso nuevo / distancia a la que el ente oye tus pasos
 
 let estado = "inicio";                        // "inicio" | "jugando" | "fin"
 let mapa, libres, jugador, ente, pulsos, vistas, suelos, salida, salidaVista, previa = 0;
+let alertaRoja = { tiles: [], a: 0 };         // camino por donde viene el ente
 let nivel = 1, pulsosRestantes = 0, latido = 0, ultimo = 0, flash = 0, tRecarga = 0, rafId = 0;
 let record = Number(localStorage.getItem("ecoRecord")) || 1;
 const teclas = {};
@@ -34,6 +35,30 @@ function tono(freq, dur, tipo = "sine", vol = 0.1, retraso = 0) {
     osc.stop(t0 + dur);
   } catch (e) { /* sin audio, el juego sigue */ }
 }
+// Pasos del ente: más fuertes y rápidos al acercarse; el paneo indica de qué lado vienen
+let pasoAlterno = false;
+function paso(cerca, pan) {
+  try {
+    iniciarAudio();
+    const t0 = audioCtx.currentTime;
+    const osc = audioCtx.createOscillator();
+    const gan = audioCtx.createGain();
+    osc.type = "triangle";
+    osc.frequency.value = pasoAlterno ? 110 : 85;
+    pasoAlterno = !pasoAlterno;
+    gan.gain.setValueAtTime(0.04 + 0.3 * cerca, t0);
+    gan.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.14);
+    osc.connect(gan);
+    if (audioCtx.createStereoPanner) {
+      const p = audioCtx.createStereoPanner();
+      p.pan.value = pan;
+      gan.connect(p).connect(audioCtx.destination);
+    } else gan.connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + 0.14);
+  } catch (e) { /* sin audio, el juego sigue */ }
+}
+
 // Más agudo = pared más cerca
 const sonidoEco = (cerca) => tono(300 + 900 * (1 - Math.min(cerca, 200) / 200), 0.6, "sine", 0.15);
 const sonidoAlerta = () => { tono(70, 0.8, "sawtooth", 0.14); tono(95, 0.8, "sawtooth", 0.1); };
@@ -77,14 +102,15 @@ function nuevoNivel() {
   salida = { x: COLS - 2, y: ROWS - 2 };
   vistas = new Float32Array(COLS * ROWS).fill(-99);
   suelos = new Float32Array(COLS * ROWS).fill(-99);
+  alertaRoja = { tiles: [], a: 0 };
   previa = 4;                              // segundos viendo todo el mapa al inicio
   salidaVista = -99;
   pulsos = [];
   pulsosRestantes = PULSOS_NIVEL;
   tRecarga = 0;
-  const lejos = libres.filter((c) => Math.abs(c.x - 1) + Math.abs(c.y - 1) >= 18 && !(c.x === salida.x && c.y === salida.y));
+  const lejos = libres.filter((c) => Math.abs(c.x - 1) + Math.abs(c.y - 1) >= 24 && !(c.x === salida.x && c.y === salida.y));
   const c = lejos[Math.floor(Math.random() * lejos.length)];
-  ente = { x: c.x * T + T / 2, y: c.y * T + T / 2, alerta: null, objetivo: null, visto: -99 };
+  ente = { x: c.x * T + T / 2, y: c.y * T + T / 2, alerta: null, objetivo: null, visto: -99, pausa: 0, rastro: 0, sinPausa: 3 };
 }
 
 function reiniciar() {
@@ -92,6 +118,7 @@ function reiniciar() {
   nivel = 1;
   nuevoNivel();
   estado = "jugando";
+  panel.classList.add("oculto");
   ultimo = performance.now();
   cancelAnimationFrame(rafId);            // evita dos bucles si reinicias en pleno juego
   rafId = requestAnimationFrame(bucle);
@@ -130,6 +157,30 @@ function siguientePaso(a, b) {
   }
   const p = prev[a.y * COLS + a.x];
   return p === -1 ? null : { x: p % COLS, y: (p / COLS) | 0 };
+}
+
+// Los siguientes mosaicos que recorrerá el ente de a hacia b
+function rutaEnte(a, b, max) {
+  const prev = new Int16Array(COLS * ROWS).fill(-1);
+  const ini = b.y * COLS + b.x;
+  prev[ini] = ini;
+  const cola = [ini];
+  for (let h = 0; h < cola.length; h++) {
+    const c = cola[h];
+    const cx = c % COLS, cy = (c / COLS) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = cx + dx, ny = cy + dy;
+      if (esMuro(nx, ny)) continue;
+      const n = ny * COLS + nx;
+      if (prev[n] !== -1) continue;
+      prev[n] = c;
+      cola.push(n);
+    }
+  }
+  const tiles = [];
+  let c = a.y * COLS + a.x;
+  while (prev[c] !== -1 && c !== ini && tiles.length < max) { c = prev[c]; tiles.push(c); }
+  return tiles;
 }
 
 // ---------- Pulso de sonido ----------
@@ -175,6 +226,12 @@ function libre(x, y) {
 }
 
 function actualizarEnte(dt) {
+  // El ente duda: de vez en cuando se detiene un momento y te da chance de huir
+  if (ente.pausa > 0) { ente.pausa -= dt; return; }
+  if (ente.alerta) {
+    ente.sinPausa -= dt;
+    if (ente.sinPausa <= 0) { ente.pausa = 0.8; ente.sinPausa = 2.5 + Math.random() * 2.5; return; }
+  }
   const t = { x: Math.floor(ente.x / T), y: Math.floor(ente.y / T) };
   let meta = ente.alerta || ente.objetivo;
   const llego = meta && t.x === meta.x && t.y === meta.y &&
@@ -237,18 +294,27 @@ function actualizar(dt, ahora) {
   }
 
   // Si estás muy cerca, el ente también oye tus pasos y te persigue
-  if (Math.hypot(ente.x - jugador.x, ente.y - jugador.y) < RADIO_PASOS) {
+  // (y solo actualiza tu posición cada 1.3 s, así que no te sigue con exactitud)
+  ente.rastro -= dt;
+  if (ente.rastro <= 0 && Math.hypot(ente.x - jugador.x, ente.y - jugador.y) < RADIO_PASOS) {
     ente.alerta = { x: Math.floor(jugador.x / T), y: Math.floor(jugador.y / T) };
+    ente.rastro = 1.3;
   }
 
   actualizarEnte(dt);
 
-  // Latido: más rápido mientras más cerca está el ente
+  // Pasos del ente (con dirección) y camino rojo por donde viene
   const dEnte = Math.hypot(ente.x - jugador.x, ente.y - jugador.y);
-  if (dEnte < 200) {
+  const meta = ente.alerta || ente.objetivo;
+  if (dEnte < RADIO_OIR) {
     latido -= dt;
-    if (latido <= 0) { tono(55, 0.15, "sine", 0.3); latido = 0.25 + (0.8 * dEnte) / 200; }
-  }
+    if (latido <= 0) {
+      paso(1 - dEnte / RADIO_OIR, Math.max(-1, Math.min(1, (ente.x - jugador.x) / 150)));
+      latido = 0.3 + (0.9 * dEnte) / RADIO_OIR;
+    }
+    const tEnte = { x: Math.floor(ente.x / T), y: Math.floor(ente.y / T) };
+    alertaRoja = { tiles: meta ? rutaEnte(tEnte, meta, 6) : [], a: 0.1 + 0.3 * (1 - dEnte / RADIO_OIR) };
+  } else alertaRoja.tiles = [];
   if (dEnte < 16) return morir();
 
   if (Math.floor(jugador.x / T) === salida.x && Math.floor(jugador.y / T) === salida.y) {
@@ -311,6 +377,9 @@ function dibujar(ahora) {
     ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
     ctx.stroke();
   }
+  // Camino por donde viene el ente
+  ctx.fillStyle = `rgba(255,70,70,${alertaRoja.a})`;
+  for (const i of alertaRoja.tiles) ctx.fillRect((i % COLS) * T, ((i / COLS) | 0) * T, T, T);
   // Ente (solo se ve un instante cuando el eco lo toca, o al morir)
   const aE = estado === "fin" || mem ? 1 : 1 - (ahora - ente.visto) / 1.5;
   if (aE > 0) {
@@ -390,6 +459,8 @@ canvas.addEventListener("touchend", () => {
   objetivoToque = null;
 });
 
+const panel = document.getElementById("instrucciones");
+document.getElementById("comenzar").addEventListener("click", () => reiniciar());
 const botonReiniciar = document.getElementById("reiniciar");
 botonReiniciar.addEventListener("click", () => { reiniciar(); botonReiniciar.blur(); });
 

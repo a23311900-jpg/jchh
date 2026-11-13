@@ -9,9 +9,24 @@
 <body>
   <main>
     <h1>Eco</h1>
-    <canvas id="juego" width="630" height="450" aria-label="Laberinto oscuro"></canvas>
+    <div class="contenedor">
+      <canvas id="juego" width="810" height="570" aria-label="Laberinto oscuro"></canvas>
+      <div id="instrucciones" class="panel">
+        <h2>Escapa del ente</h2>
+        <p>Despiertas en un laberinto totalmente oscuro. Algo te caza y no ve: te oye. Encuentra la salida verde antes de que te alcance.</p>
+        <ul>
+          <li><b>Memoriza.</b> Al empezar cada nivel ves el mapa, la salida y al ente durante 4 segundos.</li>
+          <li><b>Muévete</b> con las flechas o WASD (en móvil, mantén el dedo en la pantalla).</li>
+          <li><b>Lanza un eco</b> con clic o espacio (en móvil, un toque rápido) para ver paredes y camino un instante. Se recargan solos.</li>
+          <li><b>Cuidado:</b> cada eco lo alerta y va hacia donde sonó. Lánzalo y muévete de inmediato.</li>
+          <li><b>Escucha.</b> Si se acerca oirás sus pasos, más fuertes y rápidos, del lado por donde viene. El camino rojo marca su ruta.</li>
+          <li><b>R</b> reinicia la partida en cualquier momento.</li>
+        </ul>
+        <button id="comenzar" type="button">Comenzar</button>
+      </div>
+    </div>
     <button id="reiniciar" type="button">Reiniciar</button>
-    <p class="ayuda">Moverte: flechas o WASD · Pulso de sonido: clic o toque rápido · R: reiniciar · En móvil, mantén el dedo para caminar</p>
+    <p class="ayuda">Moverte: flechas o WASD · Eco: clic o espacio · R: reiniciar</p>
   </main>
   <script src="game.js"></script>
 </body>
