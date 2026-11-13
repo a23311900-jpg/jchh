@@ -1,10 +1,13 @@
 // ===== ECO: un laberinto oscuro donde el sonido te guía... y te delata =====
 const canvas = document.getElementById("juego");
 const ctx = canvas.getContext("2d");
-const T = 30, COLS = 27, ROWS = 19;          // tamaño del mosaico y del mapa
-const W = COLS * T, H = ROWS * T;
-const VEL_JUG = 120, VEL_ONDA = 240, MAX_R = 380, PULSOS_NIVEL = 10;
-const RECARGA = 4, RADIO_PASOS = 65, RADIO_OIR = 280;
+const T = 30;                                // tamaño del mosaico
+let COLS = 27, ROWS = 19;                    // tamaño del mapa (crece con el nivel)
+let esc = 1, offX = 0, offY = 0;             // zoom y centrado del mapa en el lienzo
+const W = canvas.width, H = canvas.height;
+const VEL_JUG = 120, VEL_ONDA = 240, MAX_R = 380;
+let PULSOS_NIVEL = 10, RECARGA = 4;       // cambian con el nivel
+const RADIO_PASOS = 65, RADIO_OIR = 280;
 const VEL_CARRERA = 190, ALIENTO_MAX = 2;   // correr: velocidad y segundos de aliento     // segundos por pulso nuevo / distancia a la que el ente oye tus pasos
 
 let estado = "inicio";                        // "inicio" | "jugando" | "fin"
@@ -72,6 +75,18 @@ function esMuro(tx, ty) {
   return tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS || mapa[ty][tx] === 1;
 }
 
+// Dificultad incremental: laberinto más grande, menos pulsos y señuelos, ente más rápido
+function ajustarDificultad() {
+  COLS = Math.min(27, 15 + 2 * (nivel - 1));
+  ROWS = Math.min(19, 11 + 2 * (nivel - 1));
+  esc = Math.min(W / (COLS * T), H / (ROWS * T));
+  offX = (W - COLS * T * esc) / 2;
+  offY = (H - ROWS * T * esc) / 2;
+  PULSOS_NIVEL = Math.max(6, 12 - nivel);
+  RECARGA = Math.min(6, 3 + 0.4 * nivel);
+  senuelos = nivel <= 2 ? 3 : nivel <= 5 ? 2 : 1;
+}
+
 function generarMapa() {
   const m = Array.from({ length: ROWS }, () => Array(COLS).fill(1));
   const pila = [[1, 1]];
@@ -88,7 +103,8 @@ function generarMapa() {
     m[y + dy][x + dx] = 0;
     pila.push([x + dx, y + dy]);
   }
-  for (let i = 0; i < 25; i++) {              // huecos extra: hay varios caminos
+  const huecos = Math.max(2, Math.round((COLS * ROWS) / 14 - nivel * 3));
+  for (let i = 0; i < huecos; i++) {              // huecos extra: hay varios caminos
     const x = 1 + Math.floor(Math.random() * (COLS - 2));
     const y = 1 + Math.floor(Math.random() * (ROWS - 2));
     if ((x % 2) + (y % 2) === 1) m[y][x] = 0;
@@ -97,6 +113,7 @@ function generarMapa() {
 }
 
 function nuevoNivel() {
+  ajustarDificultad();
   mapa = generarMapa();
   libres = [];
   for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (!mapa[y][x]) libres.push({ x, y });
@@ -106,13 +123,13 @@ function nuevoNivel() {
   suelos = new Float32Array(COLS * ROWS).fill(-99);
   alertaRoja = { tiles: [], a: 0 };
   aliento = ALIENTO_MAX; agotado = false; corriendo = false;
-  senuelos = 2; senueloAnim = null;
-  previa = 4;                              // segundos viendo todo el mapa al inicio
+  senueloAnim = null;
+  previa = 7;                              // segundos viendo todo el mapa al inicio
   salidaVista = -99;
   pulsos = [];
   pulsosRestantes = PULSOS_NIVEL;
   tRecarga = 0;
-  const lejos = libres.filter((c) => Math.abs(c.x - 1) + Math.abs(c.y - 1) >= 24 && !(c.x === salida.x && c.y === salida.y));
+  const lejos = libres.filter((c) => Math.abs(c.x - 1) + Math.abs(c.y - 1) >= Math.floor((COLS + ROWS) * 0.55) && !(c.x === salida.x && c.y === salida.y));
   const c = lejos[Math.floor(Math.random() * lejos.length)];
   ente = { x: c.x * T + T / 2, y: c.y * T + T / 2, alerta: null, objetivo: null, visto: -99, pausa: 0, rastro: 0, sinPausa: 3 };
 }
@@ -290,9 +307,12 @@ function actualizarEnte(dt) {
     meta = ente.objetivo;
   }
   const paso = siguientePaso(t, meta) || meta;
-  const px = paso.x * T + T / 2, py = paso.y * T + T / 2;
+  let px = paso.x * T + T / 2, py = paso.y * T + T / 2;
+  // Al final de la persecución va directo hacia ti (no hacia el centro del mosaico)
+  const dJ = Math.hypot(jugador.x - ente.x, jugador.y - ente.y);
+  if (ente.alerta && dJ < 45 && lineaLibre(ente.x, ente.y, jugador.x, jugador.y)) { px = jugador.x; py = jugador.y; }
   const d = Math.hypot(px - ente.x, py - ente.y);
-  const v = (ente.alerta ? Math.min(115, 88 + nivel * 5) : 40) * dt;
+  const v = (ente.alerta ? Math.min(115, 80 + nivel * 5) : 30 + nivel * 3) * dt;
   if (d > 0.01) {
     const k = Math.min(1, v / d);
     ente.x += (px - ente.x) * k;
@@ -373,9 +393,9 @@ function actualizar(dt, ahora) {
       latido = 0.3 + (0.9 * dEnte) / RADIO_OIR;
     }
     const tEnte = { x: Math.floor(ente.x / T), y: Math.floor(ente.y / T) };
-    alertaRoja = { tiles: meta ? rutaEnte(tEnte, meta, 6) : [], a: 0.1 + 0.3 * (1 - dEnte / RADIO_OIR) };
+    alertaRoja = { tiles: meta ? rutaEnte(tEnte, meta, 5) : [], a: 0.1 + 0.3 * (1 - dEnte / RADIO_OIR) };
   } else alertaRoja.tiles = [];
-  if (dEnte < 16) return morir();
+  if (dEnte < 18) return morir();
 
   if (Math.floor(jugador.x / T) === salida.x && Math.floor(jugador.y / T) === salida.y) {
     nivel++;
@@ -410,6 +430,10 @@ function dibujar(ahora) {
     texto("Presiona espacio o toca para empezar", W / 2, H / 2 + 75, 15, "#6f7f95");
     return;
   }
+
+  ctx.save();
+  ctx.translate(offX, offY);
+  ctx.scale(esc, esc);
 
   // Mapa revelado (paredes brillantes, camino tenue); todo se desvanece
   const mem = previa > 0;
@@ -449,8 +473,11 @@ function dibujar(ahora) {
     }
   }
   // Camino por donde viene el ente
-  ctx.fillStyle = `rgba(255,70,70,${alertaRoja.a})`;
-  for (const i of alertaRoja.tiles) ctx.fillRect((i % COLS) * T, ((i / COLS) | 0) * T, T, T);
+  // (más intenso cerca del ente: por ahí llegará primero)
+  alertaRoja.tiles.forEach((i, k) => {
+    ctx.fillStyle = `rgba(255,70,70,${alertaRoja.a * (1 - k / 6)})`;
+    ctx.fillRect((i % COLS) * T, ((i / COLS) | 0) * T, T, T);
+  });
   // Ente (solo se ve un instante cuando el eco lo toca, o al morir)
   const aE = estado === "fin" || mem ? 1 : 1 - (ahora - ente.visto) / 1.5;
   if (aE > 0) {
@@ -467,6 +494,8 @@ function dibujar(ahora) {
   ctx.beginPath();
   ctx.arc(jugador.x, jugador.y, 5, 0, Math.PI * 2);
   ctx.fill();
+
+  ctx.restore();
 
   texto(`Nivel ${nivel}`, 10, 18, 14, "#6f7f95", "left");
   texto(`Pulsos: ${pulsosRestantes}`, W / 2, 18, 14, pulsosRestantes ? "#78dcff" : "#ff6b6b");
@@ -519,7 +548,8 @@ canvas.addEventListener("mousedown", () => {
 function posToque(e) {
   const r = canvas.getBoundingClientRect();
   const t = e.targetTouches[0] || e.changedTouches[0];
-  return { x: ((t.clientX - r.left) * W) / r.width, y: ((t.clientY - r.top) * H) / r.height };
+  const cx = ((t.clientX - r.left) * W) / r.width, cy = ((t.clientY - r.top) * H) / r.height;
+  return { x: (cx - offX) / esc, y: (cy - offY) / esc };   // a coordenadas del mapa
 }
 canvas.addEventListener("touchstart", (e) => {
   e.preventDefault();
