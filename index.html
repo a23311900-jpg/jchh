@@ -20,13 +20,18 @@
           <li><b>Lanza un eco</b> con clic o espacio (en móvil, un toque rápido) para ver paredes y camino un instante. Se recargan solos.</li>
           <li><b>Cuidado:</b> cada eco lo alerta y va hacia donde sonó. Lánzalo y muévete de inmediato.</li>
           <li><b>Escucha.</b> Si se acerca oirás sus pasos, más fuertes y rápidos, del lado por donde viene. El camino rojo marca su ruta.</li>
+          <li><b>Huye:</b> mantén <b>Shift</b> para correr (aliento limitado): si ganas distancia, el ente pierde tu rastro. Con <b>E</b> lanzas un señuelo, un ruido falso que desvía al ente (2 por nivel).</li>
           <li><b>R</b> reinicia la partida en cualquier momento.</li>
         </ul>
         <button id="comenzar" type="button">Comenzar</button>
       </div>
     </div>
-    <button id="reiniciar" type="button">Reiniciar</button>
-    <p class="ayuda">Moverte: flechas o WASD · Eco: clic o espacio · R: reiniciar</p>
+    <div class="botones">
+      <button id="reiniciar" type="button">Reiniciar</button>
+      <button id="correr" type="button">Correr (mantén)</button>
+      <button id="senuelo" type="button">Señuelo</button>
+    </div>
+    <p class="ayuda">Moverte: flechas o WASD · Eco: clic o espacio · Correr: Shift · Señuelo: E · Reiniciar: R</p>
   </main>
   <script src="game.js"></script>
 </body>

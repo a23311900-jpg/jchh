@@ -4,10 +4,12 @@ const ctx = canvas.getContext("2d");
 const T = 30, COLS = 27, ROWS = 19;          // tamaño del mosaico y del mapa
 const W = COLS * T, H = ROWS * T;
 const VEL_JUG = 120, VEL_ONDA = 240, MAX_R = 380, PULSOS_NIVEL = 10;
-const RECARGA = 4, RADIO_PASOS = 65, RADIO_OIR = 280;     // segundos por pulso nuevo / distancia a la que el ente oye tus pasos
+const RECARGA = 4, RADIO_PASOS = 65, RADIO_OIR = 280;
+const VEL_CARRERA = 190, ALIENTO_MAX = 2;   // correr: velocidad y segundos de aliento     // segundos por pulso nuevo / distancia a la que el ente oye tus pasos
 
 let estado = "inicio";                        // "inicio" | "jugando" | "fin"
 let mapa, libres, jugador, ente, pulsos, vistas, suelos, salida, salidaVista, previa = 0;
+let aliento = ALIENTO_MAX, agotado = false, corriendo = false, senuelos = 2, senueloAnim = null;
 let alertaRoja = { tiles: [], a: 0 };         // camino por donde viene el ente
 let nivel = 1, pulsosRestantes = 0, latido = 0, ultimo = 0, flash = 0, tRecarga = 0, rafId = 0;
 let record = Number(localStorage.getItem("ecoRecord")) || 1;
@@ -103,6 +105,8 @@ function nuevoNivel() {
   vistas = new Float32Array(COLS * ROWS).fill(-99);
   suelos = new Float32Array(COLS * ROWS).fill(-99);
   alertaRoja = { tiles: [], a: 0 };
+  aliento = ALIENTO_MAX; agotado = false; corriendo = false;
+  senuelos = 2; senueloAnim = null;
   previa = 4;                              // segundos viendo todo el mapa al inicio
   salidaVista = -99;
   pulsos = [];
@@ -219,6 +223,50 @@ function emitir() {
   sonidoEco(cerca);
 }
 
+// ---------- Señuelo: un ruido falso que desvía al ente ----------
+function tonoPan(freq, dur, vol, pan, retraso = 0) {
+  try {
+    iniciarAudio();
+    const t0 = audioCtx.currentTime + retraso;
+    const osc = audioCtx.createOscillator();
+    const gan = audioCtx.createGain();
+    osc.type = "triangle";
+    osc.frequency.value = freq;
+    gan.gain.setValueAtTime(vol, t0);
+    gan.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(gan);
+    if (audioCtx.createStereoPanner) {
+      const p = audioCtx.createStereoPanner();
+      p.pan.value = pan;
+      gan.connect(p).connect(audioCtx.destination);
+    } else gan.connect(audioCtx.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur);
+  } catch (e) { /* sin audio, el juego sigue */ }
+}
+
+function lanzarSenuelo() {
+  if (estado !== "jugando" || previa > 0 || senuelos <= 0) return;
+  const dJ = (c) => Math.hypot(c.x * T + T / 2 - jugador.x, c.y * T + T / 2 - jugador.y);
+  const dE = (c) => Math.hypot(c.x * T + T / 2 - ente.x, c.y * T + T / 2 - ente.y);
+  // Lugares lejos de ti pero más cerca del ente que de ti: así se aleja de tu posición
+  const cand = libres.filter((c) => dJ(c) >= 150 && dJ(c) <= 380 && dE(c) < dJ(c))
+    .sort((a, b) => (dJ(b) - dE(b)) - (dJ(a) - dE(a)))
+    .slice(0, 5);
+  if (!cand.length) return;
+  const c = cand[Math.floor(Math.random() * cand.length)];
+  senuelos--;
+  const x = c.x * T + T / 2, y = c.y * T + T / 2;
+  senueloAnim = { x, y, t0: performance.now() / 1000 };
+  ente.alerta = { x: c.x, y: c.y };
+  ente.rastro = 3.5;                          // ignora tus pasos un rato
+  ente.pausa = 0;
+  const pan = Math.max(-1, Math.min(1, (x - jugador.x) / 200));
+  tonoPan(660, 0.25, 0.15, pan);
+  tonoPan(990, 0.35, 0.12, pan, 0.12);
+  sonidoAlerta();
+}
+
 // ---------- Lógica ----------
 function libre(x, y) {
   const r = 6;
@@ -268,9 +316,21 @@ function actualizar(dt, ahora) {
     const d = Math.hypot(vx, vy);
     if (d > 10) { dx = vx / d; dy = vy / d; }
   }
-  const nx = jugador.x + dx * VEL_JUG * dt;
+  // Correr (Shift): mucho más rápido, pero con aliento limitado
+  let vel = VEL_JUG;
+  corriendo = false;
+  if (teclas.Shift && (dx || dy) && !agotado && aliento > 0) {
+    vel = VEL_CARRERA;
+    corriendo = true;
+    aliento -= dt;
+    if (aliento <= 0) { aliento = 0; agotado = true; }
+  } else {
+    aliento = Math.min(ALIENTO_MAX, aliento + 0.4 * dt);
+    if (agotado && aliento >= 0.8) agotado = false;
+  }
+  const nx = jugador.x + dx * vel * dt;
   if (libre(nx, jugador.y)) jugador.x = nx;
-  const ny = jugador.y + dy * VEL_JUG * dt;
+  const ny = jugador.y + dy * vel * dt;
   if (libre(jugador.x, ny)) jugador.y = ny;
 
   // Ondas: revelan paredes y... despiertan al ente
@@ -293,7 +353,7 @@ function actualizar(dt, ahora) {
     if (tRecarga >= RECARGA) { pulsosRestantes++; tRecarga = 0; }
   }
 
-  // Si estás muy cerca, el ente también oye tus pasos y te persigue
+  // Si estás muy cerca, el ente oye tus pasos y te persigue; si te alejas más del radio, pierde tu rastro
   // (y solo actualiza tu posición cada 1.3 s, así que no te sigue con exactitud)
   ente.rastro -= dt;
   if (ente.rastro <= 0 && Math.hypot(ente.x - jugador.x, ente.y - jugador.y) < RADIO_PASOS) {
@@ -377,6 +437,17 @@ function dibujar(ahora) {
     ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
     ctx.stroke();
   }
+  // Señuelo: anillo ámbar donde sonó el ruido falso
+  if (senueloAnim) {
+    const k = ahora - senueloAnim.t0;
+    if (k < 1) {
+      ctx.strokeStyle = `rgba(255,224,138,${1 - k})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(senueloAnim.x, senueloAnim.y, 8 + k * 60, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
   // Camino por donde viene el ente
   ctx.fillStyle = `rgba(255,70,70,${alertaRoja.a})`;
   for (const i of alertaRoja.tiles) ctx.fillRect((i % COLS) * T, ((i / COLS) | 0) * T, T, T);
@@ -400,6 +471,12 @@ function dibujar(ahora) {
   texto(`Nivel ${nivel}`, 10, 18, 14, "#6f7f95", "left");
   texto(`Pulsos: ${pulsosRestantes}`, W / 2, 18, 14, pulsosRestantes ? "#78dcff" : "#ff6b6b");
   texto(`Récord: nivel ${record}`, W - 10, 18, 14, "#6f7f95", "right");
+  texto(`Señuelos (E): ${senuelos}`, W - 10, 38, 14, senuelos ? "#ffe08a" : "#6f7f95", "right");
+  ctx.fillStyle = "#1a2a36";                  // barra de aliento
+  ctx.fillRect(10, 28, 100, 6);
+  ctx.fillStyle = agotado ? "#ff6b6b" : "#ffe08a";
+  ctx.fillRect(10, 28, 100 * (aliento / ALIENTO_MAX), 6);
+  texto("Aliento (Shift)", 10, 48, 12, "#6f7f95", "left");
 
   if (mem) texto(`Memoriza el mapa y al ente: ${Math.ceil(previa)}`, W / 2, H - 10, 16, "#ffe08a");
 
@@ -424,14 +501,16 @@ function bucle(t) {
 // ---------- Controles ----------
 window.addEventListener("keydown", (e) => {
   teclas[e.key] = true;
+  teclas[e.key.toLowerCase()] = true;      // evita teclas pegadas al usar Shift
   if (e.code === "Space") {
     e.preventDefault();
     if (estado !== "jugando") reiniciar(); else emitir();
   }
+  if (e.code === "KeyE") lanzarSenuelo();
   if (e.code === "KeyR") reiniciar();     // R: reiniciar en cualquier momento
   if (e.key.startsWith("Arrow")) e.preventDefault();
 });
-window.addEventListener("keyup", (e) => { teclas[e.key] = false; });
+window.addEventListener("keyup", (e) => { teclas[e.key] = false; teclas[e.key.toLowerCase()] = false; });
 
 canvas.addEventListener("mousedown", () => {
   if (estado !== "jugando") reiniciar(); else emitir();
@@ -439,7 +518,8 @@ canvas.addEventListener("mousedown", () => {
 
 function posToque(e) {
   const r = canvas.getBoundingClientRect();
-  return { x: ((e.touches[0].clientX - r.left) * W) / r.width, y: ((e.touches[0].clientY - r.top) * H) / r.height };
+  const t = e.targetTouches[0] || e.changedTouches[0];
+  return { x: ((t.clientX - r.left) * W) / r.width, y: ((t.clientY - r.top) * H) / r.height };
 }
 canvas.addEventListener("touchstart", (e) => {
   e.preventDefault();
@@ -463,5 +543,13 @@ const panel = document.getElementById("instrucciones");
 document.getElementById("comenzar").addEventListener("click", () => reiniciar());
 const botonReiniciar = document.getElementById("reiniciar");
 botonReiniciar.addEventListener("click", () => { reiniciar(); botonReiniciar.blur(); });
+
+// Botones para móvil: Correr (mantener presionado) y Señuelo
+const botonCorrer = document.getElementById("correr");
+botonCorrer.addEventListener("pointerdown", (e) => { e.preventDefault(); teclas.Shift = true; });
+["pointerup", "pointerleave", "pointercancel"].forEach((ev) =>
+  botonCorrer.addEventListener(ev, () => { teclas.Shift = false; }));
+const botonSenuelo = document.getElementById("senuelo");
+botonSenuelo.addEventListener("click", () => { lanzarSenuelo(); botonSenuelo.blur(); });
 
 dibujar(0);
