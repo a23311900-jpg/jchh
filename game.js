@@ -4,10 +4,11 @@ const ctx = canvas.getContext("2d");
 const T = 30, COLS = 21, ROWS = 15;          // tamaño del mosaico y del mapa
 const W = COLS * T, H = ROWS * T;
 const VEL_JUG = 120, VEL_ONDA = 240, MAX_R = 320, PULSOS_NIVEL = 10;
+const RECARGA = 5, RADIO_PASOS = 90;     // segundos por pulso nuevo / distancia a la que el ente oye tus pasos
 
 let estado = "inicio";                        // "inicio" | "jugando" | "fin"
 let mapa, libres, jugador, ente, pulsos, vistas, salida, salidaVista;
-let nivel = 1, pulsosRestantes = 0, latido = 0, ultimo = 0, flash = 0;
+let nivel = 1, pulsosRestantes = 0, latido = 0, ultimo = 0, flash = 0, tRecarga = 0, rafId = 0;
 let record = Number(localStorage.getItem("ecoRecord")) || 1;
 const teclas = {};
 let toque = null, objetivoToque = null;
@@ -78,6 +79,7 @@ function nuevoNivel() {
   salidaVista = -99;
   pulsos = [];
   pulsosRestantes = PULSOS_NIVEL;
+  tRecarga = 0;
   const lejos = libres.filter((c) => Math.abs(c.x - 1) + Math.abs(c.y - 1) >= 18 && !(c.x === salida.x && c.y === salida.y));
   const c = lejos[Math.floor(Math.random() * lejos.length)];
   ente = { x: c.x * T + T / 2, y: c.y * T + T / 2, alerta: null, objetivo: null, visto: -99 };
@@ -89,7 +91,8 @@ function reiniciar() {
   nuevoNivel();
   estado = "jugando";
   ultimo = performance.now();
-  requestAnimationFrame(bucle);
+  cancelAnimationFrame(rafId);            // evita dos bucles si reinicias en pleno juego
+  rafId = requestAnimationFrame(bucle);
 }
 
 // ---------- Visibilidad y rutas ----------
@@ -174,7 +177,7 @@ function actualizarEnte(dt) {
   const paso = siguientePaso(t, meta) || meta;
   const px = paso.x * T + T / 2, py = paso.y * T + T / 2;
   const d = Math.hypot(px - ente.x, py - ente.y);
-  const v = (ente.alerta ? Math.min(125, 95 + nivel * 8) : 45) * dt;
+  const v = (ente.alerta ? Math.min(135, 108 + nivel * 6) : 45) * dt;
   if (d > 0.01) {
     const k = Math.min(1, v / d);
     ente.x += (px - ente.x) * k;
@@ -215,6 +218,17 @@ function actualizar(dt, ahora) {
   }
   pulsos = pulsos.filter((p) => p.r < MAX_R + 40);
 
+  // Los pulsos se recargan con el tiempo (1 cada RECARGA segundos)
+  if (pulsosRestantes < PULSOS_NIVEL) {
+    tRecarga += dt;
+    if (tRecarga >= RECARGA) { pulsosRestantes++; tRecarga = 0; }
+  }
+
+  // Si estás muy cerca, el ente también oye tus pasos y te persigue
+  if (Math.hypot(ente.x - jugador.x, ente.y - jugador.y) < RADIO_PASOS) {
+    ente.alerta = { x: Math.floor(jugador.x / T), y: Math.floor(jugador.y / T) };
+  }
+
   actualizarEnte(dt);
 
   // Latido: más rápido mientras más cerca está el ente
@@ -223,7 +237,7 @@ function actualizar(dt, ahora) {
     latido -= dt;
     if (latido <= 0) { tono(55, 0.15, "sine", 0.3); latido = 0.25 + (0.8 * dEnte) / 200; }
   }
-  if (dEnte < 14) return morir();
+  if (dEnte < 16) return morir();
 
   if (Math.floor(jugador.x / T) === salida.x && Math.floor(jugador.y / T) === salida.y) {
     nivel++;
@@ -306,7 +320,7 @@ function dibujar(ahora) {
     ctx.fillRect(0, 0, W, H);
     texto("Te encontró", W / 2, H / 2 - 20, 44, "#ff6b6b");
     texto(`Llegaste al nivel ${nivel}  ·  Récord: nivel ${record}`, W / 2, H / 2 + 18, 17);
-    texto("Espacio o toca para intentarlo de nuevo", W / 2, H / 2 + 52, 15, "#6f7f95");
+    texto("Espacio, R o el botón para intentarlo de nuevo", W / 2, H / 2 + 52, 15, "#6f7f95");
   }
 }
 
@@ -316,7 +330,7 @@ function bucle(t) {
   const ahora = t / 1000;
   if (estado === "jugando") actualizar(dt, ahora);
   dibujar(ahora);
-  if (estado === "jugando") requestAnimationFrame(bucle);
+  if (estado === "jugando") rafId = requestAnimationFrame(bucle);
 }
 
 // ---------- Controles ----------
@@ -326,6 +340,7 @@ window.addEventListener("keydown", (e) => {
     e.preventDefault();
     if (estado !== "jugando") reiniciar(); else emitir();
   }
+  if (e.code === "KeyR") reiniciar();     // R: reiniciar en cualquier momento
   if (e.key.startsWith("Arrow")) e.preventDefault();
 });
 window.addEventListener("keyup", (e) => { teclas[e.key] = false; });
@@ -355,5 +370,8 @@ canvas.addEventListener("touchend", () => {
   toque = null;
   objetivoToque = null;
 });
+
+const botonReiniciar = document.getElementById("reiniciar");
+botonReiniciar.addEventListener("click", () => { reiniciar(); botonReiniciar.blur(); });
 
 dibujar(0);
