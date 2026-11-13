@@ -4,10 +4,10 @@ const ctx = canvas.getContext("2d");
 const T = 30, COLS = 21, ROWS = 15;          // tamaño del mosaico y del mapa
 const W = COLS * T, H = ROWS * T;
 const VEL_JUG = 120, VEL_ONDA = 240, MAX_R = 320, PULSOS_NIVEL = 10;
-const RECARGA = 5, RADIO_PASOS = 90;     // segundos por pulso nuevo / distancia a la que el ente oye tus pasos
+const RECARGA = 4, RADIO_PASOS = 65;     // segundos por pulso nuevo / distancia a la que el ente oye tus pasos
 
 let estado = "inicio";                        // "inicio" | "jugando" | "fin"
-let mapa, libres, jugador, ente, pulsos, vistas, salida, salidaVista;
+let mapa, libres, jugador, ente, pulsos, vistas, suelos, salida, salidaVista, previa = 0;
 let nivel = 1, pulsosRestantes = 0, latido = 0, ultimo = 0, flash = 0, tRecarga = 0, rafId = 0;
 let record = Number(localStorage.getItem("ecoRecord")) || 1;
 const teclas = {};
@@ -76,6 +76,8 @@ function nuevoNivel() {
   jugador = { x: 1.5 * T, y: 1.5 * T };
   salida = { x: COLS - 2, y: ROWS - 2 };
   vistas = new Float32Array(COLS * ROWS).fill(-99);
+  suelos = new Float32Array(COLS * ROWS).fill(-99);
+  previa = 4;                              // segundos viendo todo el mapa al inicio
   salidaVista = -99;
   pulsos = [];
   pulsosRestantes = PULSOS_NIVEL;
@@ -132,19 +134,27 @@ function siguientePaso(a, b) {
 
 // ---------- Pulso de sonido ----------
 function emitir() {
-  if (estado !== "jugando" || pulsosRestantes <= 0) return;
+  if (estado !== "jugando" || pulsosRestantes <= 0 || previa > 0) return;
   pulsosRestantes--;
   const ox = jugador.x, oy = jugador.y;
   const muros = [];
   let cerca = 999;
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
-      if (!mapa[y][x]) continue;
       const cx = x * T + T / 2, cy = y * T + T / 2;
       const d = Math.hypot(cx - ox, cy - oy);
-      if (d < MAX_R && lineaLibre(ox, oy, cx, cy, x, y)) {
-        muros.push({ i: y * COLS + x, d, hecho: false });
-        cerca = Math.min(cerca, d);
+      if (d >= MAX_R) continue;
+      const i = y * COLS + x;
+      if (mapa[y][x]) {
+        // Pared: se revela si ves el centro o cualquiera de sus esquinas
+        const pts = [[cx, cy], [x * T + 3, y * T + 3], [x * T + T - 3, y * T + 3],
+                     [x * T + 3, y * T + T - 3], [x * T + T - 3, y * T + T - 3]];
+        if (pts.some(([px, py]) => lineaLibre(ox, oy, px, py, x, y))) {
+          muros.push({ i, d, suelo: false, hecho: false });
+          cerca = Math.min(cerca, d);
+        }
+      } else if (lineaLibre(ox, oy, cx, cy)) {
+        muros.push({ i, d, suelo: true, hecho: false });   // el camino también se ilumina
       }
     }
   }
@@ -177,7 +187,7 @@ function actualizarEnte(dt) {
   const paso = siguientePaso(t, meta) || meta;
   const px = paso.x * T + T / 2, py = paso.y * T + T / 2;
   const d = Math.hypot(px - ente.x, py - ente.y);
-  const v = (ente.alerta ? Math.min(135, 108 + nivel * 6) : 45) * dt;
+  const v = (ente.alerta ? Math.min(115, 88 + nivel * 5) : 40) * dt;
   if (d > 0.01) {
     const k = Math.min(1, v / d);
     ente.x += (px - ente.x) * k;
@@ -186,6 +196,8 @@ function actualizarEnte(dt) {
 }
 
 function actualizar(dt, ahora) {
+  if (previa > 0) { previa -= dt; return; }   // fase de memorizar: todo congelado
+
   // Movimiento del jugador
   let dx = 0, dy = 0;
   if (teclas.ArrowLeft || teclas.a || teclas.A) dx--;
@@ -207,7 +219,7 @@ function actualizar(dt, ahora) {
   // Ondas: revelan paredes y... despiertan al ente
   for (const p of pulsos) {
     p.r += VEL_ONDA * dt;
-    for (const m of p.muros) if (!m.hecho && p.r >= m.d) { m.hecho = true; vistas[m.i] = ahora; }
+    for (const m of p.muros) if (!m.hecho && p.r >= m.d) { m.hecho = true; (m.suelo ? suelos : vistas)[m.i] = ahora; }
     if (p.dSal !== null && !p.salHecha && p.r >= p.dSal) { p.salHecha = true; salidaVista = ahora; }
     if (!p.oido && p.r >= Math.hypot(ente.x - p.x, ente.y - p.y)) {
       p.oido = true;
@@ -273,15 +285,20 @@ function dibujar(ahora) {
     return;
   }
 
-  // Paredes reveladas (se desvanecen)
+  // Mapa revelado (paredes brillantes, camino tenue); todo se desvanece
+  const mem = previa > 0;
+  const FADE = 3;
   for (let i = 0; i < vistas.length; i++) {
-    const a = 1 - (ahora - vistas[i]) / 2.2;
+    const cx = i % COLS, cy = (i / COLS) | 0;
+    let a;
+    if (mapa[cy][cx]) a = (mem ? 1 : 1 - (ahora - vistas[i]) / FADE) * 0.9;
+    else a = mem ? 0.1 : (1 - (ahora - suelos[i]) / FADE) * 0.12;
     if (a <= 0) continue;
-    ctx.fillStyle = `rgba(120,220,255,${a * 0.9})`;
-    ctx.fillRect((i % COLS) * T, ((i / COLS) | 0) * T, T, T);
+    ctx.fillStyle = `rgba(120,220,255,${a})`;
+    ctx.fillRect(cx * T, cy * T, T, T);
   }
   // Salida
-  const aS = 1 - (ahora - salidaVista) / 3;
+  const aS = mem ? 1 : 1 - (ahora - salidaVista) / 3;
   if (aS > 0) {
     ctx.fillStyle = `rgba(120,255,160,${aS})`;
     ctx.fillRect(salida.x * T + 5, salida.y * T + 5, T - 10, T - 10);
@@ -295,7 +312,7 @@ function dibujar(ahora) {
     ctx.stroke();
   }
   // Ente (solo se ve un instante cuando el eco lo toca, o al morir)
-  const aE = estado === "fin" ? 1 : 1 - (ahora - ente.visto) / 1.5;
+  const aE = estado === "fin" || mem ? 1 : 1 - (ahora - ente.visto) / 1.5;
   if (aE > 0) {
     const g = ctx.createRadialGradient(ente.x, ente.y, 2, ente.x, ente.y, 22);
     g.addColorStop(0, `rgba(255,60,60,${aE})`);
@@ -314,6 +331,8 @@ function dibujar(ahora) {
   texto(`Nivel ${nivel}`, 10, 18, 14, "#6f7f95", "left");
   texto(`Pulsos: ${pulsosRestantes}`, W / 2, 18, 14, pulsosRestantes ? "#78dcff" : "#ff6b6b");
   texto(`Récord: nivel ${record}`, W - 10, 18, 14, "#6f7f95", "right");
+
+  if (mem) texto(`Memoriza el mapa y al ente: ${Math.ceil(previa)}`, W / 2, H - 10, 16, "#ffe08a");
 
   if (estado === "fin") {
     ctx.fillStyle = "rgba(0,0,0,0.65)";
